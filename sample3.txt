@@ -1,0 +1,52 @@
+import argparse
+import logging
+import apache_beam as beam
+from apache_beam.options.pipeline_options import PipelineOptions
+
+from textio_local import ReadFromText
+
+table_schema = 'source:STRING, quote:STRING'
+
+
+def create_records(text):
+    d1 = [x.strip() for x in text.split('\n') if x.strip()]
+    d2 = dict([map(str.strip, x.split(':')) for x in d1 if len(x.split(':')) == 2])
+    return d2
+
+
+def run(argv=None):
+    """Run the workflow."""
+    parser = argparse.ArgumentParser()
+
+    parser.add_argument(
+        '--input',
+        dest='input',
+        default='gs://dataflow-samples/shakespeare/kinglear.txt',
+        help='Input file to process.')
+    parser.add_argument(
+        '--output',
+        required=True,
+        help=(
+            'Output BigQuery table for results specified as: '
+            'PROJECT:DATASET.TABLE or DATASET.TABLE.'))
+    known_args, pipeline_args = parser.parse_known_args(argv)
+
+    pipeline_options = PipelineOptions(pipeline_args)
+
+    with beam.Pipeline(options=pipeline_options) as pipeline:
+        outputs = (
+            pipeline
+            | 'Read file ' >> ReadFromText(known_args.input)
+            | 'Create records' >> beam.Map(create_records)
+            | 'write' >> beam.io.WriteToBigQuery(
+                known_args.output,
+                schema=table_schema,
+                create_disposition=beam.io.BigQueryDisposition.CREATE_IF_NEEDED,
+                write_disposition=beam.io.BigQueryDisposition.WRITE_TRUNCATE)
+        )
+        #outputs | 'Count all elements' >> beam.combiners.Count.Globally() | beam.Map(print)
+
+
+if __name__ == '__main__':
+    logging.getLogger().setLevel(logging.INFO)
+    run()
